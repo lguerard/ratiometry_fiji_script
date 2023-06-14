@@ -305,11 +305,6 @@ if files:
             IJ.run(imp_laplace, "NaN Background", "")
             IJ.run(imp_laplace, "Divide...", "value=255")
 
-            imp_c1.show()
-            imp_c2.show()
-            imp_laplace.show()
-            sys.exit()
-
             imp_result = ImageCalculator().run("Divide create 32-bit", imp_c1, imp_c2)
             imp_result = ImageCalculator().run(
                 "Multiply create 32-bit", imp_result, imp_laplace
