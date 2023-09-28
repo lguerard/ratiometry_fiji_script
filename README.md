@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.8387238.svg)](https://doi.org/10.5281/zenodo.8387238)
+
 # ratiometry_fiji_script
 
 Improved version of the ratiometry script used in [this
