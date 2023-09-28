@@ -1,7 +1,9 @@
 # @ File(label="Folder with your images", style="directory", description="Input folder") src_dir
 # @ File(label="Folder to save your images", style="directory", description="Output folder", required=False) out_dir
 # @ String(label="Extension for the images to look for", value="nd2") filename_filter
+# @ Integer(label="Channel to use for segmentation", value=1) seg_chnl
 # @ Boolean(label="Do channel alignment ?", value=False) do_stackreg
+# @ String (label="How to deal with thresholding ?", choices={"Fully automatic", "Manual once and apply to all", "Fully manual"}) thresh_method
 # @ RoiManager rm
 # ─── IMPORTS ────────────────────────────────────────────────────────────────────
 
@@ -10,6 +12,8 @@ import time
 import fnmatch
 
 from ij import IJ
+from ij import Prefs
+from ij.gui import WaitForUserDialog
 from ij.plugin import Duplicator, ImageCalculator
 
 # Bioformats imports
@@ -17,14 +21,12 @@ from loci.plugins import BF, LociExporter
 
 from loci.plugins.in import ImporterOptions
 from loci.plugins.out import Exporter
+
 from loci.formats.in import MetadataOptions
 from loci.formats import ImageReader
 from loci.formats import MetadataTools
 
 from java.lang import Double
-
-from net.imglib2.img.display.imagej import ImageJFunctions
-
 
 
 # ─── FUNCTIONS ──────────────────────────────────────────────────────────────────
@@ -195,6 +197,7 @@ def check_folder(path):
     if not os.path.exists(path):
         os.makedirs(path)
 
+
 def timed_log(message):
     """Print a log message with a timestamp added
 
@@ -228,6 +231,8 @@ files = getFileList(src_dir, filename_filter)
 
 pad_number = 0
 
+thresh_value = 0
+
 # # If the list of files is not empty
 if files:
     # For each file finishing with the filtered string
@@ -254,11 +259,10 @@ if files:
 
             if do_stackreg:
                 out_ratio = os.path.join(out_dir, basename + "_ratio_chnlaligned.tif")
-                IJ.run(imp, "StackReg", "transformation=[Rigid Body]")
+                IJ.run(imp, "StackReg", "transformation=[Affine]")
             else:
                 out_ratio = os.path.join(out_dir, basename + "_ratio.tif")
             out_calibration = os.path.join(out_dir, basename + "_calibration.tif")
-
 
             # sys.exit()
 
@@ -270,11 +274,7 @@ if files:
             imp_c2 = Duplicator().run(imp, 2, 2, 1, 1, 1, 1)
             imp_c2.setTitle("C2")
 
-            imp_segment = (
-                imp_c2.duplicate()
-                if (imp_c1.getStatistics().mean <= imp_c2.getStatistics().mean)
-                else imp_c1.duplicate()
-            )
+            imp_segment = Duplicator().run(imp, seg_chnl, seg_chnl, 1, 1, 1, 1)
 
             imp_segment.setTitle("Backsubtract")
             IJ.run(
@@ -288,16 +288,37 @@ if files:
                 "FeatureJ Laplacian", "compute smoothing=" + str(Double(laplace_radius))
             )
             imp_laplace = IJ.getImage()
+
+            # sys.exit()
             imp_segment.hide()
             imp_laplace.hide()
 
+            if thresh_method == "Fully automatic":
+                IJ.setAutoThreshold(imp_laplace, "Moments")
+                IJ.run(
+                    imp_laplace,
+                    "Convert to Mask",
+                    "method=" + "Moments  background=Dark black",
+                )
+            elif thresh_value == 0:
+                imp_laplace.show()
+                IJ.run("Threshold...")
+                WaitForUserDialog("Set manual threshold, then click OK").show()
+                thresh_value = imp_laplace.getProcessor().getMaxThreshold()
+                min_thresh_value = imp_laplace.getProcessor().getMinThreshold()
 
-            IJ.setAutoThreshold(imp_laplace, "Moments")
-            IJ.run(
-                imp_laplace,
-                "Convert to Mask",
-                "method=" + "Moments  background=Dark black",
-            )
+                imp_laplace.hide()
+
+            IJ.setThreshold(imp_laplace, min_thresh_value, thresh_value)
+            Prefs.blackBackground = False
+            IJ.run(imp_laplace, "Convert to Mask", "")
+
+            if thresh_method == "Fully manual":
+                thresh_value = 0
+
+            if imp_laplace.isInvertedLut():
+                IJ.run(imp_laplace, "Invert LUT", "")
+
             IJ.run(imp_laplace, "32-bit", "")
             IJ.setAutoThreshold(imp_laplace, "Default dark")
 
@@ -327,5 +348,7 @@ if files:
             imp_result.close()
             imp_c1.close()
             imp_c2.close()
+            imp_laplace.close()
+            imp_segment.close()
 
 timed_log("Script finished !")
